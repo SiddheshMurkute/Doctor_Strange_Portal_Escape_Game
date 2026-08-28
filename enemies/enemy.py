@@ -97,6 +97,11 @@ class Enemy:
             return True  # just died
         return False
 
+    def knockback(self, angle: float, distance: float = 70.0):
+        """Push the enemy away from an attack direction."""
+        self.rect.x += round(math.cos(angle) * distance)
+        self.rect.y += round(math.sin(angle) * distance)
+
     def can_attack(self) -> bool:
         return self._attack_cd <= 0
 
