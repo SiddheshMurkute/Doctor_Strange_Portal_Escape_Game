@@ -1,135 +1,446 @@
 # levels/stage5_netherworld.py
-"""Stage 5 — Netherworld/Hell: volcanic, final, most intense."""
+
+"""
+Stage 5 — Netherworld (Hell)
+Doctor Doom Battle
+"""
+
 import pygame
-import math
 import random
+
 from levels.base_level import BaseLevel
 from config.stages import STAGE_CONFIG
+from core.asset_manager import assets
 
 
 class Stage5Netherworld(BaseLevel):
+
     def __init__(self, difficulty: str):
+
+        # =========================================================
+        # BASE LEVEL
+        # =========================================================
+
         super().__init__(5, difficulty)
-        self._lava_t = 0.0
-        self._cracks = [(random.randint(0,1920), random.randint(0,1080),
-                         random.randint(30,80), random.randint(60, 160)) for _ in range(20)]
+
+        # =========================================================
+        # SCREEN
+        # =========================================================
+
+        self.screen_width = 1280
+        self.screen_height = 720
+
+        # =========================================================
+        # BACKGROUND
+        # =========================================================
+
+        self.bg_image = assets.get_image(
+            "backgrounds/stage5_netherworld_hell.jpg",
+            size=(1280, 720)
+        )
+
+        # =========================================================
+        # EMBER PARTICLES
+        # =========================================================
+
+        self.ember_particles = []
+
+        for _ in range(120):
+
+            self.ember_particles.append(
+                {
+                    "x": random.randint(0, 1279),
+                    "y": random.randint(0, 719),
+                    "size": random.randint(1, 3),
+                    "speed": random.uniform(20, 60),
+                }
+            )
+
+        # =========================================================
+        # SETUP
+        # =========================================================
+
         self.setup()
 
+    # =============================================================
+    # SETUP
+    # =============================================================
+
     def setup(self):
+
         cfg = STAGE_CONFIG[5]
-        ps = cfg["player_start"]
-        ww, wh = self.world_w, self.world_h
+
+        # ---------------------------------------------------------
+        # PLAYER START
+        # ---------------------------------------------------------
+
+        player_start = cfg["player_start"]
+
+        # ---------------------------------------------------------
+        # WORLD
+        # ---------------------------------------------------------
+
+        world_w = self.world_w
+        world_h = self.world_h
+
+        # ---------------------------------------------------------
+        # OUTER WALLS
+        # ---------------------------------------------------------
 
         self.walls = [
-            pygame.Rect(0,    0,    ww,  50),
-            pygame.Rect(0,    wh-50,ww,  50),
-            pygame.Rect(0,    0,    50,  wh),
-            pygame.Rect(ww-50,0,    50,  wh),
+
+            pygame.Rect(
+                0,
+                0,
+                world_w,
+                40
+            ),
+
+            pygame.Rect(
+                0,
+                world_h - 40,
+                world_w,
+                40
+            ),
+
+            pygame.Rect(
+                0,
+                0,
+                40,
+                world_h
+            ),
+
+            pygame.Rect(
+                world_w - 40,
+                0,
+                40,
+                world_h
+            ),
         ]
-        # Volcanic rockscape
-        rock_walls = [
-            (80,  80,  200, 200), (360, 80,  160, 180), (580, 80,  180, 200),
-            (840, 80,  200, 200), (1100,80,  180, 200), (1360,80,  200, 200),
-            (1620,80,  260, 200),
-            (80,  440, 200, 200), (360, 420, 160, 220), (580, 440, 180, 200),
-            (840, 440, 200, 220), (1100,440, 180, 200), (1360,440, 200, 220),
-            (1620,440, 260, 200),
-            (80,  760, 200, 300), (380, 760, 160, 280), (660, 760, 180, 280),
-            (940, 760, 200, 280), (1220,760, 180, 280), (1520,760, 200, 280),
-            (1720,760, 180, 280),
-            # Center lava pillars
-            (700, 280, 100, 80), (1050,300, 100, 80), (1300,280, 80, 100),
+
+        # =========================================================
+        # NETHERWORLD PLATFORMS
+        # =========================================================
+
+        blocks = [
+
+            # Left platform
+            (80, 390, 250, 170),
+
+            # Upper-left platform
+            (390, 180, 240, 170),
+
+            # Centre arena
+            (680, 390, 300, 190),
+
+            # Upper-centre platform
+            (900, 150, 250, 180),
+
+            # Right platform
+            (1180, 300, 280, 190),
+
+            # Lower-right platform
+            (1450, 470, 300, 190),
+
+            # Ground
+            (60, 760, 1700, 60),
         ]
-        for bx,by,bw,bh in rock_walls:
-            self.walls.append(pygame.Rect(bx, by, bw, bh))
 
-        self.generate_portals(ps)
-        self.generate_fragments(cfg["fragment_count"])
+        for x, y, width, height in blocks:
 
-    def draw_background(self, surface: pygame.Surface):
-        ox = int(self.camera.offset_x)
-        oy = int(self.camera.offset_y)
-        sw, sh = 1280, 720
-        t = pygame.time.get_ticks() / 1000
-        self._lava_t = t
+            self.walls.append(
+                pygame.Rect(
+                    x,
+                    y,
+                    width,
+                    height
+                )
+            )
 
-        # Dark infernal sky
-        for y in range(sh):
-            frac = y / sh
-            r = int(30  + frac * 80)
-            g = int(5   + frac * 20)
-            b = int(5   + frac * 10)
-            pygame.draw.line(surface, (r, g, b), (0, y), (sw, y))
+        # =========================================================
+        # PORTALS
+        # =========================================================
 
-        # Black volcanic ground
-        pygame.draw.rect(surface, (20, 10, 5), (0, sh//2, sw, sh))
+        self.generate_portals(
+            player_start
+        )
 
-        # Lava cracks (glowing orange lines)
-        for i in range(12):
-            lx = (i * 120) % sw
-            ly = sh//2 + (i*35) % (sh//2)
-            glow_alpha = int(100 + math.sin(t*2+i)*60)
-            col = (255, max(0, 80-i*5), 0)
-            pygame.draw.line(surface, col, (lx, ly), (lx+40, ly+20), 3)
-            pygame.draw.line(surface, col, (lx+40, ly+20), (lx+15, ly+50), 2)
-            # Glow
-            gs = pygame.Surface((50, 60), pygame.SRCALPHA)
-            gs.fill((*col, max(0, glow_alpha//3)))
-            surface.blit(gs, (lx-5, ly-5))
+        # =========================================================
+        # FRAGMENTS
+        # =========================================================
 
-        # Lava pools
-        for i in range(5):
-            lx = (i * 250 + 80) % sw
-            ly = sh//2 + 40 + i * 50
-            lw = 140 + i * 20
-            lh = 40
-            pulse = int(math.sin(t*3+i)*8)
-            lava_col = (200+pulse, 80+pulse//2, 0)
-            pygame.draw.ellipse(surface, lava_col, (lx, ly, lw, lh))
-            # Shimmer
-            pygame.draw.ellipse(surface, (255, 180, 50), (lx+10, ly+5, lw-20, lh-10), 2)
+        self.generate_fragments(
+            cfg["fragment_count"]
+        )
 
-        # Ground cracks with glow
-        for cx2, cy2, cw, ch in self._cracks:
-            sx2 = cx2 - ox; sy2 = cy2 - oy
-            if -cw < sx2 < sw+cw and -ch < sy2 < sh+ch:
-                glow = int(80 + math.sin(t*4+cx2)*50)
-                pygame.draw.line(surface, (255, glow, 0), (sx2, sy2), (sx2+cw, sy2+ch), 2)
-                glow_s = pygame.Surface((cw+10, ch+10), pygame.SRCALPHA)
-                glow_s.fill((255, glow//2, 0, 30))
-                surface.blit(glow_s, (sx2-5, sy2-5))
+    # =============================================================
+    # BACKGROUND
+    # =============================================================
 
-        # Fire columns
-        for i in range(6):
-            fx = (i * 200 + 100) % sw
-            fy = sh//2 - 50
-            for flame in range(5):
-                frad = 8 - flame * 1.5
-                foff = int(math.sin(t*4+i+flame)*10)
-                col = [(255,50,0),(255,100,0),(255,150,20),(255,200,50),(255,240,100)][flame]
-                pygame.draw.circle(surface, col, (fx+foff, fy-flame*15), max(1,int(frad)))
+    def draw_background(
+        self,
+        surface: pygame.Surface
+    ):
 
-        # Dark atmospheric smoke
-        for i in range(8):
-            sy3 = (int(t*40) + i*90) % sh
-            smoke = pygame.Surface((200, 60), pygame.SRCALPHA)
-            smoke.fill((15, 5, 5, 35))
-            surface.blit(smoke, ((i*190) % sw - 100, sy3))
+        # ---------------------------------------------------------
+        # DRAW JPG
+        # ---------------------------------------------------------
 
-        # Dimensional fractures — red/orange
-        for i in range(3):
-            fx2 = (i*450+int(math.sin(t*0.6+i)*60)) % sw
-            fy2 = sh//4 + i*100
-            pygame.draw.line(surface, (255, 50, 0), (fx2, fy2), (fx2+50, fy2+30), 3)
-            pygame.draw.line(surface, (255, 150, 20), (fx2+50, fy2+30), (fx2+20, fy2+70), 2)
+        surface.blit(
+            self.bg_image,
+            (0, 0)
+        )
 
-    def update_instability(self, time_remaining: float, total_time: float, camera, screen_shake):
-        """Increase intensity as time runs out."""
-        if total_time <= 0:
-            return
-        frac = 1.0 - max(0, time_remaining / total_time)
-        if frac > 0.5:
-            # Increase shake
-            intensity = int((frac - 0.5) * 8)
-            if random.random() < 0.1:
-                screen_shake.trigger(intensity, 0.3)
+        # ---------------------------------------------------------
+        # DRAW EMBERS
+        # ---------------------------------------------------------
+
+        for ember in self.ember_particles:
+
+            # Move upward
+            ember["y"] -= (
+                ember["speed"] * 0.016
+            )
+
+            # Slight horizontal movement
+            ember["x"] += random.uniform(
+                -0.35,
+                0.35
+            )
+
+            # -----------------------------------------------------
+            # RESET
+            # -----------------------------------------------------
+
+            if ember["y"] < -5:
+
+                ember["y"] = 725
+
+                ember["x"] = random.randint(
+                    0,
+                    1279
+                )
+
+                ember["size"] = random.randint(
+                    1,
+                    3
+                )
+
+                ember["speed"] = random.uniform(
+                    20,
+                    60
+                )
+
+            # -----------------------------------------------------
+            # SCREEN WRAP
+            # -----------------------------------------------------
+
+            if ember["x"] < 0:
+                ember["x"] = 1279
+
+            if ember["x"] > 1279:
+                ember["x"] = 0
+
+            # -----------------------------------------------------
+            # EMBER
+            # -----------------------------------------------------
+
+            pygame.draw.circle(
+                surface,
+                (
+                    255,
+                    90,
+                    20
+                ),
+                (
+                    int(ember["x"]),
+                    int(ember["y"])
+                ),
+                ember["size"]
+            )
+
+    # =============================================================
+    # UPDATE INSTABILITY
+    # =============================================================
+
+    def update_instability(
+        self,
+        time_left,
+        cfg_t,
+        camera,
+        shake
+    ):
+        """
+        Compatibility with core/game.py.
+
+        The main game passes:
+            time_left
+            cfg_t
+            camera
+            shake
+
+        Stage 5 does not need additional instability logic here.
+        """
+
+        return
+
+    # =============================================================
+    # DRAW
+    # =============================================================
+
+    def draw(
+        self,
+        surface,
+        label_font=None
+    ):
+
+        # ---------------------------------------------------------
+        # BACKGROUND
+        # ---------------------------------------------------------
+
+        self.draw_background(
+            surface
+        )
+
+        # ---------------------------------------------------------
+        # ROCK PLATFORMS
+        # ---------------------------------------------------------
+
+        for wall in self.walls:
+
+            # Skip outer boundary walls
+            if (
+                wall.x == 0
+                or wall.y == 0
+                or wall.right == self.world_w
+                or wall.bottom == self.world_h
+            ):
+                continue
+
+            screen_rect = self.camera.apply(
+                wall
+            )
+
+            # -----------------------------------------------------
+            # VOLCANIC ROCK
+            # -----------------------------------------------------
+
+            pygame.draw.rect(
+                surface,
+                (
+                    38,
+                    25,
+                    30
+                ),
+                screen_rect
+            )
+
+            # -----------------------------------------------------
+            # LAVA TOP
+            # -----------------------------------------------------
+
+            lava_rect = pygame.Rect(
+                screen_rect.x,
+                screen_rect.y,
+                screen_rect.width,
+                8
+            )
+
+            pygame.draw.rect(
+                surface,
+                (
+                    220,
+                    55,
+                    15
+                ),
+                lava_rect
+            )
+
+            # -----------------------------------------------------
+            # LAVA HIGHLIGHT
+            # -----------------------------------------------------
+
+            pygame.draw.line(
+                surface,
+                (
+                    255,
+                    120,
+                    20
+                ),
+                (
+                    screen_rect.x + 10,
+                    screen_rect.y + 4
+                ),
+                (
+                    screen_rect.right - 10,
+                    screen_rect.y + 4
+                ),
+                2
+            )
+
+            # -----------------------------------------------------
+            # ROCK BORDER
+            # -----------------------------------------------------
+
+            pygame.draw.rect(
+                surface,
+                (
+                    100,
+                    45,
+                    35
+                ),
+                screen_rect,
+                2
+            )
+
+        # =========================================================
+        # PORTALS
+        # =========================================================
+
+        if self.portal_mgr:
+
+            self.portal_mgr.draw(
+                surface,
+                self.camera,
+                label_font
+            )
+
+        # =========================================================
+        # FRAGMENTS
+        # =========================================================
+
+        for fragment in self.fragments:
+
+            fragment.draw(
+                surface,
+                self.camera
+            )
+
+        # =========================================================
+        # ENVIRONMENT EFFECTS
+        # =========================================================
+
+        self.env_fx.draw(
+            surface,
+            self.camera
+        )
+
+    # =============================================================
+    # INTERACTION PROMPTS
+    # =============================================================
+
+    def draw_interact_prompts(
+        self,
+        surface,
+        player_rect,
+        label_font
+    ):
+
+        if self.portal_mgr and label_font:
+
+            self.portal_mgr.draw_prompts(
+                surface,
+                self.camera,
+                player_rect,
+                label_font
+            )

@@ -1,9 +1,22 @@
 # levels/base_level.py
-"""Abstract base for all five stages."""
+
+"""
+Base level system for Doctor Strange Portal Escape.
+
+The base level handles:
+- camera
+- portals
+- fragments
+- environment effects
+- collisions
+- visible rooftop collision blocks
+"""
+
 import pygame
 import random
-import math
+
 from abc import ABC, abstractmethod
+
 from core.camera import Camera
 from config.stages import STAGE_CONFIG
 from objects.portal_manager import PortalManager
@@ -12,110 +25,376 @@ from effects.environment_effects import EnvironmentEffects
 
 
 class BaseLevel(ABC):
-    def __init__(self, stage: int, difficulty: str):
-        self.stage      = stage
+
+    def __init__(
+        self,
+        stage: int,
+        difficulty: str
+    ):
+
+        self.stage = stage
         self.difficulty = difficulty
-        cfg             = STAGE_CONFIG[stage]
-        self.world_w    = cfg["world_size"][0]
-        self.world_h    = cfg["world_size"][1]
-        self.world_rect = pygame.Rect(0, 0, self.world_w, self.world_h)
 
-        self.walls: list[pygame.Rect] = []
-        self.camera = Camera(self.world_w, self.world_h)
+        # ---------------------------------------------------------
+        # STAGE CONFIG
+        # ---------------------------------------------------------
 
-        # Portals
-        self.portal_mgr: PortalManager | None = None
+        cfg = STAGE_CONFIG[stage]
 
-        # Fragments
-        self.fragments: list[Fragment] = []
+        self.world_w = cfg["world_size"][0]
+        self.world_h = cfg["world_size"][1]
 
-        # Environment particles
-        self.env_fx = EnvironmentEffects(stage, self.world_w, self.world_h)
+        self.world_rect = pygame.Rect(
+            0,
+            0,
+            self.world_w,
+            self.world_h
+        )
 
-        # Status flags
-        self.portal_entered   = False  # True when correct portal touched
-        self.stage_failed     = False
+        # ---------------------------------------------------------
+        # COLLISION WALLS
+        # ---------------------------------------------------------
 
-    # -------------------------------------------------------------- abstract
+        self.walls = []
+
+        # ---------------------------------------------------------
+        # CAMERA
+        # ---------------------------------------------------------
+
+        self.camera = Camera(
+            self.world_w,
+            self.world_h
+        )
+
+        # ---------------------------------------------------------
+        # PORTALS
+        # ---------------------------------------------------------
+
+        self.portal_mgr = None
+
+        # ---------------------------------------------------------
+        # FRAGMENTS
+        # ---------------------------------------------------------
+
+        self.fragments = []
+
+        # ---------------------------------------------------------
+        # ENVIRONMENT EFFECTS
+        # ---------------------------------------------------------
+
+        self.env_fx = EnvironmentEffects(
+            stage,
+            self.world_w,
+            self.world_h
+        )
+
+        # ---------------------------------------------------------
+        # STATUS
+        # ---------------------------------------------------------
+
+        self.portal_entered = False
+
+        self.stage_failed = False
+
+    # =============================================================
+    # ABSTRACT METHODS
+    # =============================================================
+
     @abstractmethod
     def setup(self):
-        """Build walls, portals, enemies, fragments."""
-        ...
+        """
+        Build:
+        - walls
+        - portals
+        - enemies
+        - fragments
+        """
+        pass
 
     @abstractmethod
-    def draw_background(self, surface: pygame.Surface):
-        """Draw the stage-specific background/environment."""
-        ...
+    def draw_background(
+        self,
+        surface: pygame.Surface
+    ):
+        pass
 
-    # -------------------------------------------------------------- common
-    def generate_portals(self, player_start):
-        self.portal_mgr = PortalManager(self.stage, self.walls, player_start, self.world_rect)
+    # =============================================================
+    # PORTALS
+    # =============================================================
+
+    def generate_portals(
+        self,
+        player_start
+    ):
+
+        self.portal_mgr = PortalManager(
+            self.stage,
+            self.walls,
+            player_start,
+            self.world_rect
+        )
+
         self.portal_mgr.generate()
 
-    def generate_fragments(self, count, exclusion_rects=None):
-        cfg = STAGE_CONFIG[self.stage]
+    # =============================================================
+    # FRAGMENTS
+    # =============================================================
+
+    def generate_fragments(
+        self,
+        count,
+        exclusion_rects=None
+    ):
+
+        self.fragments = []
+
         for _ in range(count):
-            for attempt in range(40):
-                x = random.randint(100, self.world_w - 100)
-                y = random.randint(100, self.world_h - 100)
-                r = pygame.Rect(x-20, y-20, 40, 40)
-                blocked = any(r.colliderect(w) for w in self.walls)
-                if exclusion_rects:
-                    blocked = blocked or any(r.colliderect(ex) for ex in exclusion_rects)
+
+            for _attempt in range(100):
+
+                x = random.randint(
+                    100,
+                    self.world_w - 100
+                )
+
+                y = random.randint(
+                    100,
+                    self.world_h - 100
+                )
+
+                rect = pygame.Rect(
+                    x - 20,
+                    y - 20,
+                    40,
+                    40
+                )
+
+                blocked = False
+
+                # -------------------------------------------------
+                # CHECK WALLS
+                # -------------------------------------------------
+
+                for wall in self.walls:
+
+                    if rect.colliderect(
+                        wall
+                    ):
+
+                        blocked = True
+                        break
+
+                # -------------------------------------------------
+                # CHECK EXCLUSIONS
+                # -------------------------------------------------
+
+                if (
+                    not blocked
+                    and exclusion_rects
+                ):
+
+                    for exclusion in exclusion_rects:
+
+                        if rect.colliderect(
+                            exclusion
+                        ):
+
+                            blocked = True
+                            break
+
+                # -------------------------------------------------
+                # CREATE FRAGMENT
+                # -------------------------------------------------
+
                 if not blocked:
-                    self.fragments.append(Fragment(x, y))
+
+                    self.fragments.append(
+                        Fragment(
+                            x,
+                            y
+                        )
+                    )
+
                     break
 
-    def update(self, dt: float, player, e_pressed: bool, score_callback) -> str | None:
-        """
-        Returns:
-          'correct'  — player hit the right portal → stage complete
-          'wrong'    — penalty interaction
-          None       — normal tick
-        """
-        self.camera.update(player.rect)
-        self.env_fx.update(dt, self.camera.offset_x, self.camera.offset_y)
+    # =============================================================
+    # UPDATE
+    # =============================================================
+
+    def update(
+        self,
+        dt: float,
+        player,
+        e_pressed: bool,
+        score_callback
+    ):
+
+        # ---------------------------------------------------------
+        # CAMERA
+        # ---------------------------------------------------------
+
+        self.camera.update(
+            player.rect
+        )
+
+        # ---------------------------------------------------------
+        # ENVIRONMENT
+        # ---------------------------------------------------------
+
+        self.env_fx.update(
+            dt,
+            self.camera.offset_x,
+            self.camera.offset_y
+        )
+
+        # ---------------------------------------------------------
+        # PORTALS
+        # ---------------------------------------------------------
 
         if self.portal_mgr:
-            self.portal_mgr.update(dt)
-            result = self.portal_mgr.check_interaction(player.rect, e_pressed)
-            if result == 'correct':
-                self.portal_entered = True
-                return 'correct'
-            elif result == 'wrong':
-                return 'wrong'
 
-        # Fragment collection
-        for frag in self.fragments:
-            if not frag.collected:
-                frag.update(dt)
-                if frag.check_collect(player.rect):
-                    score_callback(frag.value)
+            self.portal_mgr.update(
+                dt
+            )
+
+            result = self.portal_mgr.check_interaction(
+                player.rect,
+                e_pressed
+            )
+
+            if result == "correct":
+
+                self.portal_entered = True
+
+                return "correct"
+
+            if result == "wrong":
+
+                return "wrong"
+
+        # ---------------------------------------------------------
+        # FRAGMENTS
+        # ---------------------------------------------------------
+
+        for fragment in self.fragments:
+
+            if fragment.collected:
+
+                continue
+
+            fragment.update(
+                dt
+            )
+
+            if fragment.check_collect(
+                player.rect
+            ):
+
+                score_callback(
+                    fragment.value
+                )
 
         return None
 
-    def draw(self, surface: pygame.Surface, label_font=None):
-        self.draw_background(surface)
-        # Walls (debug tint — remove if too ugly or paint over in subclass)
-        ox = int(self.camera.offset_x)
-        oy = int(self.camera.offset_y)
-        for w in self.walls:
-            r = pygame.Rect(w.x-ox, w.y-oy, w.width, w.height)
-            if -w.width < r.x < 1290 and -w.height < r.y < 730:
-                pygame.draw.rect(surface, (30, 20, 50), r, border_radius=4)
-                pygame.draw.rect(surface, (80, 60, 120), r, 2, border_radius=4)
+    # =============================================================
+    # DRAW
+    # =============================================================
 
-        # Portals
+    def draw(
+        self,
+        surface,
+        label_font=None
+    ):
+
+        # ---------------------------------------------------------
+        # BACKGROUND
+        # ---------------------------------------------------------
+
+        self.draw_background(
+            surface
+        )
+
+        # ---------------------------------------------------------
+        # VISIBLE COLLISION WALLS
+        # ---------------------------------------------------------
+        #
+        # Original style:
+        # dark purple blocks
+        #
+        # ---------------------------------------------------------
+
+        for wall in self.walls:
+
+            # Don't show the outer boundary walls.
+            # Only show actual level/platform blocks.
+
+            if (
+                wall.width == self.world_w
+                or wall.height == self.world_h
+            ):
+                continue
+
+            screen_rect = pygame.Rect(
+                wall.x - self.camera.offset_x,
+                wall.y - self.camera.offset_y,
+                wall.width,
+                wall.height
+            )
+
+            pygame.draw.rect(
+                surface,
+                (30, 20, 50),
+                screen_rect
+            )
+
+        # ---------------------------------------------------------
+        # PORTALS
+        # ---------------------------------------------------------
+
         if self.portal_mgr:
-            self.portal_mgr.draw(surface, self.camera, label_font)
 
-        # Fragments
-        for frag in self.fragments:
-            frag.draw(surface, self.camera)
+            self.portal_mgr.draw(
+                surface,
+                self.camera,
+                label_font
+            )
 
-        # Env particles
-        self.env_fx.draw(surface, self.camera)
+        # ---------------------------------------------------------
+        # FRAGMENTS
+        # ---------------------------------------------------------
 
-    def draw_interact_prompts(self, surface, player_rect, label_font):
+        for fragment in self.fragments:
+
+            fragment.draw(
+                surface,
+                self.camera
+            )
+
+        # ---------------------------------------------------------
+        # ENVIRONMENT PARTICLES
+        # ---------------------------------------------------------
+
+        self.env_fx.draw(
+            surface,
+            self.camera
+        )
+
+    # =============================================================
+    # INTERACTION PROMPTS
+    # =============================================================
+
+    def draw_interact_prompts(
+        self,
+        surface,
+        player_rect,
+        label_font
+    ):
+
         if self.portal_mgr and label_font:
-            self.portal_mgr.draw_prompts(surface, self.camera, player_rect, label_font)
+
+            self.portal_mgr.draw_prompts(
+                surface,
+                self.camera,
+                player_rect,
+                label_font
+            )
