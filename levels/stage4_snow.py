@@ -1,110 +1,356 @@
 # levels/stage4_snow.py
-"""Stage 4 — Snow Mountain: icy, isolated, dangerous."""
+
+"""
+Stage 4 — Snow Mountain
+"""
+
 import pygame
-import math
 import random
+
 from levels.base_level import BaseLevel
 from config.stages import STAGE_CONFIG
+from core.asset_manager import assets
 
 
 class Stage4Snow(BaseLevel):
+
     def __init__(self, difficulty: str):
+
+        # ---------------------------------------------------------
+        # BASE LEVEL
+        # ---------------------------------------------------------
+
         super().__init__(4, difficulty)
+
+        # ---------------------------------------------------------
+        # SCREEN
+        # ---------------------------------------------------------
+
+        self.screen_width = 1280
+        self.screen_height = 720
+
+        # ---------------------------------------------------------
+        # SNOW MOUNTAIN BACKGROUND
+        # ---------------------------------------------------------
+
+        self.bg_image = assets.get_image(
+            "backgrounds/stage4_snow_mountain.jpg",
+            size=(1280, 720)
+        )
+
+        # ---------------------------------------------------------
+        # SNOW PARTICLES
+        # ---------------------------------------------------------
+
+        self.snow_particles = []
+
+        for _ in range(80):
+
+            self.snow_particles.append(
+                {
+                    "x": random.randint(0, 1279),
+                    "y": random.randint(0, 719),
+                    "size": random.randint(1, 3),
+                    "speed": random.uniform(15, 35)
+                }
+            )
+
+        # ---------------------------------------------------------
+        # SETUP
+        # ---------------------------------------------------------
+
         self.setup()
 
+    # =============================================================
+    # SETUP
+    # =============================================================
+
     def setup(self):
+
         cfg = STAGE_CONFIG[4]
-        ps = cfg["player_start"]
-        ww, wh = self.world_w, self.world_h
+
+        # ---------------------------------------------------------
+        # PLAYER START
+        # ---------------------------------------------------------
+
+        player_start = cfg["player_start"]
+
+        # ---------------------------------------------------------
+        # WORLD
+        # ---------------------------------------------------------
+
+        world_w = self.world_w
+        world_h = self.world_h
+
+        # ---------------------------------------------------------
+        # OUTER WALLS
+        # ---------------------------------------------------------
 
         self.walls = [
-            pygame.Rect(0,    0,    ww,  50),
-            pygame.Rect(0,    wh-50,ww,  50),
-            pygame.Rect(0,    0,    50,  wh),
-            pygame.Rect(ww-50,0,    50,  wh),
+
+            pygame.Rect(
+                0,
+                0,
+                world_w,
+                40
+            ),
+
+            pygame.Rect(
+                0,
+                world_h - 40,
+                world_w,
+                40
+            ),
+
+            pygame.Rect(
+                0,
+                0,
+                40,
+                world_h
+            ),
+
+            pygame.Rect(
+                world_w - 40,
+                0,
+                40,
+                world_h
+            )
         ]
-        # Snow mountain terrain — cliffs and rock outcrops
-        mountain_walls = [
-            (80,  80,  180, 240),  (320, 80,  140, 200), (540, 80,  160, 200),
-            (780, 80,  180, 240),  (1040,80,  160, 200), (1280,80,  160, 220),
-            (1540,80,  200, 240),  (1700,80,  180, 200),
-            (80,  440, 160, 200),  (320, 420, 140, 220), (540, 440, 160, 200),
-            (780, 440, 180, 220),  (1040,440, 160, 200), (1280,440, 160, 220),
-            (1540,440, 200, 200),  (1700,440, 180, 220),
-            (80,  740, 180, 300),  (360, 740, 160, 280), (640, 740, 180, 280),
-            (920, 740, 180, 280),  (1200,740, 180, 280), (1500,740, 200, 280),
-            (1720,740, 180, 280),
-            # Ice pillar obstacles
-            (650, 280, 60, 100),   (1000,280, 60, 100),
-            (650, 500, 60, 60),    (1350,380, 60, 100),
+
+        # ---------------------------------------------------------
+        # SNOWY ROCK / MOUNTAIN BLOCKS
+        # ---------------------------------------------------------
+
+        blocks = [
+
+            # Left mountain
+            (80, 380, 260, 180),
+
+            # Upper left
+            (400, 180, 250, 180),
+
+            # Centre
+            (700, 400, 280, 180),
+
+            # Upper centre
+            (900, 150, 250, 170),
+
+            # Upper right
+            (1180, 280, 280, 190),
+
+            # Lower right
+            (1450, 470, 300, 190),
+
+            # Ground
+            (60, 760, 1700, 60)
         ]
-        for bx,by,bw,bh in mountain_walls:
-            self.walls.append(pygame.Rect(bx, by, bw, bh))
 
-        self.generate_portals(ps)
-        self.generate_fragments(cfg["fragment_count"])
+        for x, y, width, height in blocks:
 
-    def draw_background(self, surface: pygame.Surface):
-        ox = int(self.camera.offset_x)
-        oy = int(self.camera.offset_y)
-        sw, sh = 1280, 720
-        t = pygame.time.get_ticks() / 1000
+            self.walls.append(
+                pygame.Rect(
+                    x,
+                    y,
+                    width,
+                    height
+                )
+            )
 
-        # Sky — cold grey-blue gradient
-        for y in range(sh):
-            frac = y / sh
-            r = int(80  + frac * 40)
-            g = int(90  + frac * 50)
-            b = int(130 + frac * 70)
-            pygame.draw.line(surface, (r, g, b), (0, y), (sw, y))
+        # ---------------------------------------------------------
+        # PORTALS
+        # ---------------------------------------------------------
 
-        # Snow ground
-        pygame.draw.rect(surface, (200, 210, 230), (0, sh//2, sw, sh))
-        # Snow texture lines
-        for i in range(0, sw, 80):
-            pygame.draw.line(surface, (185, 195, 220), (i, sh//2), (i+60, sh//2+10), 2)
+        self.generate_portals(
+            player_start
+        )
 
-        # Mountain silhouettes (background)
-        mountain_pts = []
-        rng = random.Random(99)
-        x = -100
-        while x < sw + 100:
-            peak_h = rng.randint(100, 350)
-            mountain_pts += [(x, sh-100), (x+rng.randint(80,160), sh-100-peak_h),
-                             (x+rng.randint(120,200), sh-100)]
-            x += rng.randint(150, 250)
-        if len(mountain_pts) >= 3:
-            pygame.draw.polygon(surface, (140, 155, 185), mountain_pts)
-            pygame.draw.polygon(surface, (190, 200, 220), mountain_pts, 2)
+        # ---------------------------------------------------------
+        # FRAGMENTS
+        # ---------------------------------------------------------
 
-        # Ice crystals
-        for i in range(8):
-            cx2 = (i * 180 + 60) % sw
-            cy2 = sh//2 - 5
-            for j in range(5):
-                a = math.pi/2 + j * math.pi/2.5
-                ex2 = cx2 + int(math.cos(a) * 20)
-                ey2 = cy2 + int(math.sin(a) * 20)
-                pygame.draw.line(surface, (180, 220, 255), (cx2, cy2), (ex2, ey2), 2)
+        self.generate_fragments(
+            cfg["fragment_count"]
+        )
 
-        # Fog patches
-        for i in range(10):
-            fx = (i * 140) % sw
-            fy = sh//3 + i*20
-            fog = pygame.Surface((300, 80), pygame.SRCALPHA)
-            fog.fill((220, 230, 250, 25))
-            surface.blit(fog, (fx - 150, fy))
+    # =============================================================
+    # BACKGROUND
+    # =============================================================
 
-        # Wind streaks
-        for i in range(15):
-            wx2 = (int(t*200) + i*90) % (sw+200) - 100
-            wy2 = i * 50
-            wlen = random.Random(i*7).randint(40, 120)
-            pygame.draw.line(surface, (200, 220, 255), (wx2, wy2), (wx2+wlen, wy2+2), 1)
+    def draw_background(
+        self,
+        surface: pygame.Surface
+    ):
 
-        # Mystical blue glow patches
-        mx = int(math.sin(t*0.5) * 100) + sw//2
-        my = sh//3
-        glow = pygame.Surface((300, 150), pygame.SRCALPHA)
-        glow.fill((80, 120, 255, 20))
-        surface.blit(glow, (mx-150, my-75))
+        # ---------------------------------------------------------
+        # SNOW MOUNTAIN JPG
+        # ---------------------------------------------------------
+
+        surface.blit(
+            self.bg_image,
+            (0, 0)
+        )
+
+        # ---------------------------------------------------------
+        # FALLING SNOW
+        # ---------------------------------------------------------
+
+        for snow in self.snow_particles:
+
+            snow["y"] += (
+                snow["speed"] * 0.016
+            )
+
+            if snow["y"] > 720:
+
+                snow["y"] = -5
+
+                snow["x"] = random.randint(
+                    0,
+                    1279
+                )
+
+            pygame.draw.circle(
+                surface,
+                (
+                    245,
+                    250,
+                    255
+                ),
+                (
+                    int(snow["x"]),
+                    int(snow["y"])
+                ),
+                snow["size"]
+            )
+
+    # =============================================================
+    # DRAW
+    # =============================================================
+
+    def draw(
+        self,
+        surface,
+        label_font=None
+    ):
+
+        # ---------------------------------------------------------
+        # BACKGROUND
+        # ---------------------------------------------------------
+
+        self.draw_background(
+            surface
+        )
+
+        # ---------------------------------------------------------
+        # SNOWY BLOCKS
+        # ---------------------------------------------------------
+
+        for wall in self.walls:
+
+            # Skip outside boundary walls
+
+            if (
+                wall.x == 0
+                or wall.y == 0
+                or wall.right == self.world_w
+                or wall.bottom == self.world_h
+            ):
+                continue
+
+            screen_rect = self.camera.apply(
+                wall
+            )
+
+            # Rock body
+
+            pygame.draw.rect(
+                surface,
+                (
+                    45,
+                    50,
+                    65
+                ),
+                screen_rect
+            )
+
+            # Snow cap
+
+            pygame.draw.rect(
+                surface,
+                (
+                    225,
+                    235,
+                    245
+                ),
+                (
+                    screen_rect.x,
+                    screen_rect.y,
+                    screen_rect.width,
+                    10
+                )
+            )
+
+            # Edge
+
+            pygame.draw.rect(
+                surface,
+                (
+                    150,
+                    175,
+                    200
+                ),
+                screen_rect,
+                2
+            )
+
+        # ---------------------------------------------------------
+        # PORTALS
+        # ---------------------------------------------------------
+
+        if self.portal_mgr:
+
+            self.portal_mgr.draw(
+                surface,
+                self.camera,
+                label_font
+            )
+
+        # ---------------------------------------------------------
+        # FRAGMENTS
+        # ---------------------------------------------------------
+
+        for fragment in self.fragments:
+
+            fragment.draw(
+                surface,
+                self.camera
+            )
+
+        # ---------------------------------------------------------
+        # ENVIRONMENT EFFECTS
+        # ---------------------------------------------------------
+
+        self.env_fx.draw(
+            surface,
+            self.camera
+        )
+
+    # =============================================================
+    # INTERACTION PROMPTS
+    # =============================================================
+
+    def draw_interact_prompts(
+        self,
+        surface,
+        player_rect,
+        label_font
+    ):
+
+        if self.portal_mgr and label_font:
+
+            self.portal_mgr.draw_prompts(
+                surface,
+                self.camera,
+                player_rect,
+                label_font
+            )

@@ -72,13 +72,28 @@ class EnemyManager:
 
             # Enemy attacks player
             if hit_player:
-                player.take_damage(e.damage)
+                damaged = player.take_damage(e.damage)
+
+                if damaged:
+                    score_delta += SCORING["hazard_hit_penalty"]
 
             # Player attack hits enemy
             hitbox = player.attack.get_hitbox(player.rect)
             if hitbox and e.alive and hitbox.colliderect(e.rect):
                 from player.player_attack import ATTACK_DAMAGE
                 just_died = e.take_damage(ATTACK_DAMAGE)
+
+                # -------------------------------------------------
+                # FLAME KNOCKBACK
+                # -------------------------------------------------
+                # Push the enemy away from the direction in which
+                # the player's flame is being cast.
+                if not just_died:
+                    e.knockback(
+                        player.attack.angle,
+                        distance=70.0
+                    )
+
                 if just_died and self._kill_count < self._kill_cap:
                     self._kill_count += 1
                     score_delta += SCORING["enemy_kill_bonus"]
