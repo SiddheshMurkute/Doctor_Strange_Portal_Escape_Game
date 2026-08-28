@@ -66,6 +66,90 @@ class BaseLevel(ABC):
                     self.fragments.append(Fragment(x, y))
                     break
 
+        # Validate layout accessibility and fix any closed-off essential areas
+        if self.stage in STAGE_CONFIG and "player_start" in STAGE_CONFIG[self.stage]:
+            self.ensure_accessibility(STAGE_CONFIG[self.stage]["player_start"])
+
+    def ensure_accessibility(self, player_start: tuple):
+        """Fix blocked paths by validating accessibility and removing blocking walls."""
+        import heapq
+        
+        destinations = []
+        if getattr(self, 'portal_mgr', None):
+            for p in self.portal_mgr.portals:
+                destinations.append(p.rect.center)
+        for f in getattr(self, 'fragments', []):
+            destinations.append(f.rect.center)
+            
+        if not destinations:
+            return
+
+        grid_size = 30
+        cols = self.world_w // grid_size + 1
+        rows = self.world_h // grid_size + 1
+        player_w, player_h = 64, 80
+        
+        for dest in destinations:
+            start_cx = int(player_start[0] // grid_size)
+            start_cy = int(player_start[1] // grid_size)
+            target_cx = int(dest[0] // grid_size)
+            target_cy = int(dest[1] // grid_size)
+            
+            memo = {}
+            def get_wall_collisions(cx, cy):
+                if (cx, cy) in memo: return memo[(cx, cy)]
+                bx = cx * grid_size + grid_size // 2
+                by = cy * grid_size + grid_size // 2
+                r = pygame.Rect(bx - player_w//2, by - player_h//2, player_w, player_h)
+                hits = [w for w in self.walls if r.colliderect(w)]
+                memo[(cx, cy)] = hits
+                return hits
+
+            def heuristic(cx, cy):
+                return abs(cx - target_cx) + abs(cy - target_cy)
+
+            q = [(0 + heuristic(start_cx, start_cy), 0, start_cx, start_cy, [])]
+            visited = {}
+            found_path = None
+            
+            while q:
+                est_cost, cost, cx, cy, path = heapq.heappop(q)
+                
+                if cx == target_cx and cy == target_cy:
+                    found_path = path
+                    break
+                    
+                if (cx, cy) in visited and visited[(cx, cy)] <= cost:
+                    continue
+                visited[(cx, cy)] = cost
+                
+                for dx, dy in [(-1,0), (1,0), (0,-1), (0,1)]:
+                    nx, ny = cx + dx, cy + dy
+                    if 0 <= nx < cols and 0 <= ny < rows:
+                        walls_hit = get_wall_collisions(nx, ny)
+                        step_cost = 1
+                        is_boundary = False
+                        if walls_hit:
+                            for w in walls_hit:
+                                if w.x <= 0 or w.y <= 0 or w.right >= self.world_w or w.bottom >= self.world_h:
+                                    is_boundary = True
+                                    break
+                            if is_boundary:
+                                continue # Never break boundaries
+                            step_cost += 1000
+                            
+                        new_cost = cost + step_cost
+                        if (nx, ny) not in visited or visited[(nx, ny)] > new_cost:
+                            heapq.heappush(q, (new_cost + heuristic(nx, ny), new_cost, nx, ny, path + [(nx, ny)]))
+                            
+            if found_path:
+                for px, py in found_path:
+                    hits = get_wall_collisions(px, py)
+                    for w in hits:
+                        if w in self.walls:
+                            if not (w.x <= 0 or w.y <= 0 or w.right >= self.world_w or w.bottom >= self.world_h):
+                                self.walls.remove(w)
+
     def update(self, dt: float, player, e_pressed: bool, score_callback) -> str | None:
         """
         Returns:

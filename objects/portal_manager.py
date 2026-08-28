@@ -64,10 +64,37 @@ class PortalManager:
                     portal_placed = True
                     break
             if not portal_placed:
-                # fallback — place at zone origin
+                # fallback - scan zone systematically for a valid position
                 zone = all_zones[i % len(all_zones)]
-                p = Portal(zone[0]+10, zone[1]+10, self.stage, i == correct_idx, label, i)
-                placed.append(p)
+                zx, zy, zw, zh = zone
+                found = False
+                
+                for sx in range(zx, max(zx+1, zx+zw-PORTAL_W), 40):
+                    for sy in range(zy, max(zy+1, zy+zh-PORTAL_H), 40):
+                        if _valid_pos(sx, sy, PORTAL_W, PORTAL_H, self.walls, placed, self.player_start):
+                            p = Portal(sx, sy, self.stage, i == correct_idx, label, i)
+                            placed.append(p)
+                            portal_placed = True
+                            found = True
+                            break
+                    if found: break
+                
+                if not found:
+                    # If zone is completely blocked, scan the entire map as a backup
+                    for sx in range(100, self.world_rect.width - PORTAL_W - 100, 80):
+                        for sy in range(100, self.world_rect.height - PORTAL_H - 100, 80):
+                            if _valid_pos(sx, sy, PORTAL_W, PORTAL_H, self.walls, placed, self.player_start):
+                                p = Portal(sx, sy, self.stage, i == correct_idx, label, i)
+                                placed.append(p)
+                                portal_placed = True
+                                found = True
+                                break
+                        if found: break
+                
+                if not found:
+                    # Absolute fallback to prevent crash (A* validation will handle blockages later)
+                    p = Portal(zone[0]+10, zone[1]+10, self.stage, i == correct_idx, label, i)
+                    placed.append(p)
 
         self.portals = placed
 
