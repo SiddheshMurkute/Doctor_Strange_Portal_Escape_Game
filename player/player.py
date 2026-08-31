@@ -1,828 +1,546 @@
 # ============================================================
-# DOCTOR STRANGE STYLE PLAYER
+# DOCTOR STRANGE PLAYER
 # player/player.py
 # ============================================================
 
 import pygame
 import math
 import os
+import random
 
-from config.controls import *
+from config.controls import (
+    MOVE_LEFT, MOVE_RIGHT, MOVE_UP, MOVE_DOWN,
+    ATTACK, INTERACT
+)
 from config.settings import SCREEN_WIDTH, SCREEN_HEIGHT
 from player.player_animation import build_animations
-from player.player_attack import MysticFlame
+from player.player_attack import BoltsOfBalthakk
 from core.collision import collide_rects
+from core.momentum import Momentum
 from effects.particles import ParticleSystem
 
 
 # ============================================================
-# PLAYER SETTINGS
+# SETTINGS
 # ============================================================
 
-PLAYER_SPEED = 220
-PLAYER_HP = 100
-IFRAMES = 0.6
-DAMAGE_PER_HIT = 5
+PLAYER_SPEED     = 230      # px/s normal
+PLAYER_HP        = 100
+IFRAMES          = 0.65     # seconds after taking damage
+DAMAGE_PER_HIT   = 5
+
+# Dash
+DASH_SPEED       = 500      # px/s burst
+DASH_DURATION    = 0.18     # seconds
+DASH_COOLDOWN    = 0.80     # seconds
+DASH_IFRAMES     = 0.40     # iframes during dash (> dash duration → brief window)
+
+# Reality Break
+RB_DURATION      = 2.0      # seconds of Reality Break effect
+RB_STAGGER_RANGE = 400      # px radius to stagger enemies
+
+# Dash key
+DASH_KEYS = [pygame.K_LSHIFT, pygame.K_RSHIFT, pygame.K_SPACE]
+RB_KEY    = pygame.K_q
 
 
 class Player:
 
     # ========================================================
-    # INITIALIZE PLAYER
+    # INIT
     # ========================================================
 
     def __init__(self, x: int, y: int):
 
-        print("")
-        print("🔥🔥🔥 DOCTOR STRANGE PLAYER.PY IS RUNNING 🔥🔥🔥")
-        print("")
-
-        # ----------------------------------------------------
-        # COLLISION SIZE
-        # ----------------------------------------------------
-
+        # ------- collision -------
         self.SIZE = (64, 80)
+        self.rect = pygame.Rect(x, y, self.SIZE[0], self.SIZE[1])
+        self._fx   = float(x)    # float position for sub-pixel accuracy
+        self._fy   = float(y)
 
-        self.rect = pygame.Rect(
-            x,
-            y,
-            self.SIZE[0],
-            self.SIZE[1]
-        )
+        self.vel   = pygame.Vector2(0.0, 0.0)
 
-        self.vel = pygame.Vector2(0, 0)
-
-        # ----------------------------------------------------
-        # HEALTH
-        # ----------------------------------------------------
-
-        self.hp = PLAYER_HP
-        self.max_hp = PLAYER_HP
-        self.alive = True
+        # ------- health -------
+        self.hp      = PLAYER_HP
+        self.max_hp  = PLAYER_HP
+        self.alive   = True
         self.iframes = 0.0
 
-        # ----------------------------------------------------
-        # ORIGINAL ANIMATION SYSTEM
-        # ----------------------------------------------------
+        # ------- animations -------
+        self._anims      = build_animations(self.SIZE)
+        self._state      = "idle"
+        self._frame      = 0.0
+        self._frame_spd  = 6.0
+        self._facing     = "right"
 
-        self._anims = build_animations(self.SIZE)
-
-        self._state = "idle"
-        self._frame = 0.0
-        self._frame_spd = 6.0
-        self._facing = "right"
-
-        # ----------------------------------------------------
-        # CUSTOM DOCTOR STRANGE IMAGE
-        # ----------------------------------------------------
-
+        # ------- custom image -------
         self.custom_player = None
-
         self.load_custom_player()
 
-        # ----------------------------------------------------
-        # ATTACK
-        # ----------------------------------------------------
+        # ------- attack -------
+        self.attack = BoltsOfBalthakk()
 
-        self.attack = MysticFlame()
+        # ------- dash -------
+        self._dashing        = False
+        self._dash_timer     = 0.0
+        self._dash_cooldown  = 0.0
+        self._dash_vel       = pygame.Vector2(0.0, 0.0)
+        self._dash_particles = ParticleSystem()
+        self._dash_afterimages: list[dict] = []
 
-        # ----------------------------------------------------
-        # PARTICLES
-        # ----------------------------------------------------
+        # ------- momentum -------
+        self.momentum = Momentum()
 
-        self._particles = ParticleSystem()
+        # ------- Reality Break -------
+        self._rb_active  = False
+        self._rb_timer   = 0.0
+        self._rb_surface = None   # mirror-dimension overlay (built lazily)
 
-        # ----------------------------------------------------
-        # DAMAGE FLASH
-        # ----------------------------------------------------
+        # ------- particles -------
+        self._particles  = ParticleSystem()
 
-        self._flash = 0.0
+        # ------- visual -------
+        self._flash      = 0.0   # damage red flash
+        self._hit_white  = 0.0   # hit-white flash (brief)
 
-        # ----------------------------------------------------
-        # FRAGMENTS
-        # ----------------------------------------------------
-
+        # ------- fragment count -------
         self.fragments_collected = 0
 
+        # ------- aim -------
+        self._aim_angle = 0.0    # radians; updated from mouse each frame
+
     # ========================================================
-    # LOAD CUSTOM PLAYER
+    # CUSTOM IMAGE LOADER (unchanged)
     # ========================================================
 
     def load_custom_player(self):
-
-        print("==============================================")
-        print("🪄 LOADING CUSTOM SORCERER PLAYER")
-        print("==============================================")
-
-        # ----------------------------------------------------
-        # FIND PROJECT DIRECTORY
-        # ----------------------------------------------------
-
-        current_file = os.path.abspath(__file__)
-
-        player_folder = os.path.dirname(
-            current_file
-        )
-
-        project_folder = os.path.dirname(
-            player_folder
-        )
-
-        # ----------------------------------------------------
-        # PLAYER IMAGE FOLDER
-        # ----------------------------------------------------
-
-        player_folder_path = os.path.join(
-            project_folder,
-            "assets",
-            "player"
-        )
-
-        print("Player asset folder:")
-        print(player_folder_path)
-
-        # ----------------------------------------------------
-        # POSSIBLE IMAGE NAMES
-        #
-        # This is deliberately flexible so that the game
-        # can find your image even if you forgot to rename it.
-        # ----------------------------------------------------
+        current_file    = os.path.abspath(__file__)
+        player_folder   = os.path.dirname(current_file)
+        project_folder  = os.path.dirname(player_folder)
+        player_folder_path = os.path.join(project_folder, "assets", "player")
 
         possible_images = [
-
             "mystical_sorcerer_player.jpg",
-
             "doctor_strange_player_120x145.jpg",
-
             "doctor_strange_player.jpg",
-
             "mystical_sorcerer_player.jpeg",
-
             "doctor_strange_player.jpeg",
-
             "mystical_sorcerer_player.png",
-
-            "doctor_strange_player.png"
+            "doctor_strange_player.png",
         ]
 
         image_path = None
-
-        # ----------------------------------------------------
-        # SEARCH FOR IMAGE
-        # ----------------------------------------------------
-
         for filename in possible_images:
-
-            test_path = os.path.join(
-                player_folder_path,
-                filename
-            )
-
+            test_path = os.path.join(player_folder_path, filename)
             if os.path.isfile(test_path):
-
                 image_path = test_path
-
-                print("")
-                print("✅ FOUND PLAYER IMAGE:")
-                print(filename)
-
                 break
 
-        # ----------------------------------------------------
-        # IF NOTHING FOUND
-        # ----------------------------------------------------
-
         if image_path is None:
-
-            print("")
-            print("❌❌❌ PLAYER IMAGE NOT FOUND ❌❌❌")
-            print("")
-
-            print(
-                "Game searched in:"
-            )
-
-            print(
-                player_folder_path
-            )
-
-            print("")
-
-            print("Files currently found:")
-
-            if os.path.isdir(
-                player_folder_path
-            ):
-
-                for filename in os.listdir(
-                    player_folder_path
-                ):
-
-                    print(
-                        "   ->",
-                        filename
-                    )
-
-            else:
-
-                print(
-                    "   PLAYER ASSET FOLDER DOES NOT EXIST!"
-                )
-
-            print("")
-            print("Original player will be used.")
-            print("==============================================")
-
             return
-
-        # ====================================================
-        # LOAD IMAGE
-        # ====================================================
 
         try:
-
-            image = pygame.image.load(
-                image_path
-            ).convert()
-
-        except Exception as error:
-
-            print("")
-            print("❌ ERROR LOADING PLAYER IMAGE")
-            print(error)
-            print("==============================================")
-
+            image = pygame.image.load(image_path).convert()
+        except Exception:
             return
 
-        # ----------------------------------------------------
-        # IMAGE SIZE
-        # ----------------------------------------------------
-
-        print("")
-        print(
-            "Original image:",
-            image.get_width(),
-            "x",
-            image.get_height()
-        )
-
-        # ====================================================
-        # MAKE IMAGE ALPHA
-        # ====================================================
-
         image = image.convert_alpha()
+        w, h  = image.get_width(), image.get_height()
+        for y in range(h):
+            for x in range(w):
+                r, g, b, a = image.get_at((x, y))
+                if r > 220 and g > 220 and b > 220:
+                    image.set_at((x, y), (r, g, b, 0))
 
-        # ====================================================
-        # REMOVE LIGHT BACKGROUND
-        # ====================================================
-
-        width = image.get_width()
-        height = image.get_height()
-
-        for y in range(height):
-
-            for x in range(width):
-
-                r, g, b, a = image.get_at(
-                    (x, y)
-                )
-
-                # Remove white/light gray background
-
-                if (
-                    r > 220
-                    and g > 220
-                    and b > 220
-                ):
-
-                    image.set_at(
-                        (x, y),
-                        (
-                            r,
-                            g,
-                            b,
-                            0
-                        )
-                    )
-
-        # ====================================================
-        # FINAL DISPLAY SIZE
-        # ====================================================
-
-        PLAYER_WIDTH = 120
+        PLAYER_WIDTH  = 120
         PLAYER_HEIGHT = 145
+        image         = pygame.transform.smoothscale(image, (PLAYER_WIDTH, PLAYER_HEIGHT))
 
-        image = pygame.transform.smoothscale(
-            image,
-            (
-                PLAYER_WIDTH,
-                PLAYER_HEIGHT
-            )
-        )
-
-        # ====================================================
-        # CREATE TRANSPARENT PLAYER SURFACE
-        # ====================================================
-
-        self.custom_player = pygame.Surface(
-            (
-                PLAYER_WIDTH,
-                PLAYER_HEIGHT
-            ),
-            pygame.SRCALPHA
-        )
-
-        self.custom_player.fill(
-            (
-                0,
-                0,
-                0,
-                0
-            )
-        )
-
-        # ----------------------------------------------------
-        # DRAW IMAGE
-        # ----------------------------------------------------
-
-        self.custom_player.blit(
-            image,
-            (
-                0,
-                0
-            )
-        )
-
-        # ====================================================
-        # SUCCESS
-        # ====================================================
-
-        print("")
-        print("==============================================")
-        print("✅ CUSTOM SORCERER PLAYER LOADED!")
-        print("==============================================")
-        print(
-            "Display size:",
-            PLAYER_WIDTH,
-            "x",
-            PLAYER_HEIGHT
-        )
-        print(
-            "Image:",
-            os.path.basename(image_path)
-        )
-        print("==============================================")
-        print("")
+        self.custom_player = pygame.Surface((PLAYER_WIDTH, PLAYER_HEIGHT), pygame.SRCALPHA)
+        self.custom_player.fill((0, 0, 0, 0))
+        self.custom_player.blit(image, (0, 0))
 
     # ========================================================
     # INPUT
     # ========================================================
 
-    def handle_input(
-        self,
-        keys,
-        dt: float
-    ):
-
+    def handle_input(self, keys, dt: float, mouse_pos=None, camera=None, events=None) -> None:
         if not self.alive:
-
             return
 
-        dx = 0.0
-        dy = 0.0
+        # --- Movement direction ---
+        dx, dy = 0.0, 0.0
 
-        # ----------------------------------------------------
-        # LEFT
-        # ----------------------------------------------------
-
-        if any(
-            keys[k]
-            for k in MOVE_LEFT
-        ):
-
-            dx -= 1
-
+        if any(keys[k] for k in MOVE_LEFT):
+            dx -= 1.0
             self._facing = "left"
 
-        # ----------------------------------------------------
-        # RIGHT
-        # ----------------------------------------------------
-
-        if any(
-            keys[k]
-            for k in MOVE_RIGHT
-        ):
-
-            dx += 1
-
+        if any(keys[k] for k in MOVE_RIGHT):
+            dx += 1.0
             self._facing = "right"
 
-        # ----------------------------------------------------
-        # UP
-        # ----------------------------------------------------
+        if any(keys[k] for k in MOVE_UP):
+            dy -= 1.0
+            if dx == 0:
+                self._facing = "up"
 
-        if any(
-            keys[k]
-            for k in MOVE_UP
-        ):
+        if any(keys[k] for k in MOVE_DOWN):
+            dy += 1.0
+            if dx == 0:
+                self._facing = "down"
 
-            dy -= 1
-
-            self._facing = "up"
-
-        # ----------------------------------------------------
-        # DOWN
-        # ----------------------------------------------------
-
-        if any(
-            keys[k]
-            for k in MOVE_DOWN
-        ):
-
-            dy += 1
-
-            self._facing = "down"
-
-        # ----------------------------------------------------
-        # DIAGONAL MOVEMENT
-        # ----------------------------------------------------
-
+        # Diagonal normalise
         if dx != 0 and dy != 0:
+            mag = math.sqrt(2)
+            dx /= mag
+            dy /= mag
 
-            magnitude = math.sqrt(2)
-
-            dx /= magnitude
-            dy /= magnitude
-
-        self.vel.x = (
-            dx * PLAYER_SPEED
-        )
-
-        self.vel.y = (
-            dy * PLAYER_SPEED
-        )
-
-        # ====================================================
-        # ATTACK
-        # ====================================================
-
-        if any(
-            keys[k]
-            for k in ATTACK
-        ):
-
-            self.attack.try_attack(
-                self.rect,
-                self._facing,
-                keys
-            )
-
-        # ====================================================
-        # STATE
-        # ====================================================
-
-        if not self.alive:
-
-            self._state = "death"
-
-        elif self._flash > 0:
-
-            self._state = "damage"
-
-        elif self.attack.active:
-
-            self._state = "attack"
-
-        elif dx != 0 or dy != 0:
-
-            self._state = "walk"
-
+        # --- Aim: prefer mouse, fallback to facing ---
+        if mouse_pos is not None and camera is not None:
+            world_mouse = camera.world_pos(mouse_pos)
+            mdx = world_mouse[0] - self.rect.centerx
+            mdy = world_mouse[1] - self.rect.centery
+            dist = math.hypot(mdx, mdy)
+            if dist > 5:
+                self._aim_angle = math.atan2(mdy, mdx)
+                #   Update facing for flip
+                if abs(mdx) >= abs(mdy):
+                    self._facing = "right" if mdx >= 0 else "left"
         else:
+            # Fallback facing → angle
+            dirs = {"right": 0.0, "left": math.pi,
+                    "up": -math.pi / 2, "down": math.pi / 2}
+            self._aim_angle = dirs.get(self._facing, 0.0)
 
+        # --- Velocity (unless dashing) ---
+        if not self._dashing:
+            speed = PLAYER_SPEED * self.momentum.bonuses["speed_mult"]
+            self.vel.x = dx * speed
+            self.vel.y = dy * speed
+
+        # Signal momentum that player is active
+        if dx != 0 or dy != 0 or self.attack.active:
+            self.momentum.signal_active()
+
+        # --- Dash ---
+        dash_pressed = any(keys[k] for k in DASH_KEYS)
+        if dash_pressed and self._dash_cooldown <= 0 and not self._dashing:
+            self._start_dash(dx, dy)
+
+        # --- Attack: detect held fire button ---
+        fire_held = any(keys[k] for k in ATTACK)
+        # Also support left mouse button
+        try:
+            fire_held = fire_held or pygame.mouse.get_pressed()[0]
+        except Exception:
+            pass
+
+        if fire_held and not self._dashing:
+            origin = (float(self.rect.centerx), float(self.rect.centery))
+            fired  = self.attack.try_fire(origin, self._aim_angle)
+            if fired:
+                self.momentum.signal_active()
+
+        # --- Reality Break ---
+        try:
+            rb_pressed = bool(keys[RB_KEY])
+        except Exception:
+            rb_pressed = False
+        if rb_pressed and self.momentum.reality_break_ready and not self._rb_active:
+            self._activate_reality_break()
+
+        # --- Animation state ---
+        if not self.alive:
+            self._state = "death"
+        elif self._dashing:
+            self._state = "walk"
+        elif self._flash > 0:
+            self._state = "damage"
+        elif self.attack.active:
+            self._state = "attack"
+        elif dx != 0 or dy != 0:
+            self._state = "walk"
+        else:
             self._state = "idle"
+
+    # ========================================================
+    # DASH
+    # ========================================================
+
+    def _start_dash(self, dx: float, dy: float) -> None:
+        # Determine direction
+        if abs(dx) + abs(dy) < 0.01:
+            # Dash toward aim if not moving
+            dx = math.cos(self._aim_angle)
+            dy = math.sin(self._aim_angle)
+
+        self._dashing       = True
+        self._dash_timer    = DASH_DURATION
+        self.iframes        = max(self.iframes, DASH_IFRAMES)
+        self._dash_vel      = pygame.Vector2(dx * DASH_SPEED, dy * DASH_SPEED)
+        self.vel            = pygame.Vector2(self._dash_vel)
+
+        # Store afterimage
+        self._dash_afterimages.append({
+            "x": self._fx,
+            "y": self._fy,
+            "alpha": 180,
+            "facing": self._facing,
+        })
+
+        # Dash particles
+        self._dash_particles.emit(
+            self.rect.centerx, self.rect.centery,
+            18, (130, 180, 255), speed_range=(2, 7), life_range=(0.15, 0.4)
+        )
+        self.momentum.signal_active()
+
+    # ========================================================
+    # REALITY BREAK
+    # ========================================================
+
+    def _activate_reality_break(self) -> None:
+        if not self.momentum.spend_reality_break():
+            return
+        self._rb_active = True
+        self._rb_timer  = RB_DURATION
+        # Build overlay surface (mirror-dimension geometry)
+        self._rb_surface = self._build_rb_surface()
+
+    def _build_rb_surface(self) -> pygame.Surface:
+        """Build a sacred-geometry overlay for Reality Break."""
+        surf = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        cx, cy = SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2
+        # Concentric hexagonal rings
+        for i in range(6):
+            r     = 80 + i * 80
+            alpha = max(20, 80 - i * 12)
+            col   = (100 + i * 25, 0, 255 - i * 30, alpha)
+            points = []
+            for k in range(6):
+                angle = math.radians(60 * k + 30)
+                px    = cx + int(math.cos(angle) * r)
+                py    = cy + int(math.sin(angle) * r)
+                points.append((px, py))
+            pygame.draw.polygon(surf, col, points, 2)
+        # Cross beams
+        for angle_deg in range(0, 180, 30):
+            ang = math.radians(angle_deg)
+            x1  = cx + int(math.cos(ang) * 500)
+            y1  = cy + int(math.sin(ang) * 500)
+            x2  = cx - int(math.cos(ang) * 500)
+            y2  = cy - int(math.sin(ang) * 500)
+            pygame.draw.line(surf, (180, 0, 255, 40), (x1, y1), (x2, y2), 1)
+        return surf
 
     # ========================================================
     # UPDATE
     # ========================================================
 
-    def update(
-        self,
-        dt: float,
-        walls: list,
-        world_rect: pygame.Rect
-    ):
+    def update(self, dt: float, walls: list, world_rect: pygame.Rect) -> None:
 
-        # ----------------------------------------------------
-        # IFRAMES
-        # ----------------------------------------------------
-
+        # --- iframes ---
         if self.iframes > 0:
-
             self.iframes -= dt
 
-        # ----------------------------------------------------
-        # DAMAGE FLASH
-        # ----------------------------------------------------
-
+        # --- damage flash ---
         if self._flash > 0:
-
             self._flash -= dt
 
-        # ====================================================
-        # X MOVEMENT
-        # ====================================================
+        # --- dash timer ---
+        if self._dashing:
+            self._dash_timer -= dt
+            if self._dash_timer <= 0:
+                self._dashing = False
+                self.vel.x = 0.0
+                self.vel.y = 0.0
+                # Landing particle burst
+                self._dash_particles.emit(
+                    self.rect.centerx, self.rect.centery,
+                    10, (160, 200, 255), speed_range=(1, 4), life_range=(0.1, 0.25)
+                )
 
-        self.rect.x += int(
-            self.vel.x * dt
-        )
+        if self._dash_cooldown > 0:
+            self._dash_cooldown -= dt
+            if self._dash_cooldown < 0:
+                self._dash_cooldown = 0.0
 
-        mtv = collide_rects(
-            self.rect,
-            walls
-        )
+        # Start cooldown the moment dash ends
+        if not self._dashing and self._dash_cooldown <= 0:
+            pass   # handled by _start_dash setting timer
 
-        self.rect.x += int(
-            mtv.x
-        )
+        # --- Reality Break timer ---
+        if self._rb_active:
+            self._rb_timer -= dt
+            if self._rb_timer <= 0:
+                self._rb_active  = False
+                self._rb_surface = None
 
-        # ====================================================
-        # Y MOVEMENT
-        # ====================================================
+        # --- float-position movement ---
+        self._fx += self.vel.x * dt
+        self._fy += self.vel.y * dt
 
-        self.rect.y += int(
-            self.vel.y * dt
-        )
+        # Sync rect (x axis)
+        self.rect.x = int(round(self._fx))
+        mtv = collide_rects(self.rect, walls)
+        if mtv.x != 0:
+            self._fx    += mtv.x
+            self.rect.x  = int(round(self._fx))
+            if self._dashing:
+                self.vel.x = 0
 
-        mtv = collide_rects(
-            self.rect,
-            walls
-        )
+        # y axis
+        self.rect.y = int(round(self._fy))
+        mtv = collide_rects(self.rect, walls)
+        if mtv.y != 0:
+            self._fy    += mtv.y
+            self.rect.y  = int(round(self._fy))
+            if self._dashing:
+                self.vel.y = 0
 
-        self.rect.y += int(
-            mtv.y
-        )
+        # World boundary
+        self.rect.clamp_ip(world_rect)
+        self._fx = float(self.rect.x)
+        self._fy = float(self.rect.y)
 
-        # ====================================================
-        # WORLD BOUNDARY
-        # ====================================================
+        # --- attack update ---
+        self.attack.update(dt, self.rect)
 
-        self.rect.clamp_ip(
-            world_rect
-        )
+        # --- particles ---
+        self._particles.update(dt)
+        self._dash_particles.update(dt)
 
-        # ====================================================
-        # ATTACK UPDATE
-        # ====================================================
+        # --- dash cooldown reset when dash ends ---
+        # (We set cooldown only once per dash, at the start)
 
-        self.attack.update(
-            dt,
-            self.rect
-        )
+        # --- afterimages fade ---
+        alive_ai = []
+        for ai in self._dash_afterimages:
+            ai["alpha"] -= 220 * dt
+            if ai["alpha"] > 0:
+                alive_ai.append(ai)
+        self._dash_afterimages = alive_ai
 
-        # ====================================================
-        # PARTICLES
-        # ====================================================
+        # --- momentum ---
+        self.momentum.update(dt)
 
-        self._particles.update(
-            dt
-        )
-
-        # ====================================================
-        # ANIMATION FRAME
-        # ====================================================
-
+        # --- animation frame ---
         if self._state in self._anims:
-
-            frames = self._anims[
-                self._state
-            ]
-
-            if len(frames) > 0:
-
-                self._frame = (
-                    self._frame
-                    + self._frame_spd * dt
-                ) % len(frames)
+            frames = self._anims[self._state]
+            if frames:
+                self._frame = (self._frame + self._frame_spd * dt) % len(frames)
 
     # ========================================================
     # DAMAGE
     # ========================================================
 
-    def take_damage(
-        self,
-        amount: int
-    ):
-
-        if (
-            self.iframes > 0
-            or not self.alive
-        ):
-
+    def take_damage(self, amount: int) -> bool:
+        if self.iframes > 0 or not self.alive:
             return False
 
-        self.hp = max(
-            0,
-            self.hp - amount
-        )
-
+        self.hp      = max(0, self.hp - amount)
         self.iframes = IFRAMES
-
-        self._flash = 0.25
+        self._flash  = 0.28
 
         self._particles.emit(
-            self.rect.centerx,
-            self.rect.centery,
-            12,
-            (255, 80, 80),
-            (2, 5),
-            (0.2, 0.5)
+            self.rect.centerx, self.rect.centery,
+            14, (255, 80, 80), speed_range=(2, 6), life_range=(0.2, 0.5)
         )
+        self.momentum.on_damage()
 
         if self.hp <= 0:
-
             self.alive = False
 
         return True
 
-    # ========================================================
-    # HEAL
-    # ========================================================
-
-    def heal(
-        self,
-        amount: int
-    ):
-
-        self.hp = min(
-            self.max_hp,
-            self.hp + amount
-        )
+    def heal(self, amount: int) -> None:
+        self.hp = min(self.max_hp, self.hp + amount)
 
     # ========================================================
-    # DRAW PLAYER
+    # DRAW
     # ========================================================
 
-    def draw(
-        self,
-        surface: pygame.Surface,
-        camera
-    ):
+    def draw(self, surface: pygame.Surface, camera) -> None:
 
-        # ====================================================
-        # INVULNERABILITY BLINK
-        # ====================================================
-
-        visible = True
-
-        if self.iframes > 0:
-
-            visible = (
-                int(
-                    self.iframes * 10
-                ) % 2 == 0
-            )
-
-        if not visible:
-
-            return
-
-        # ====================================================
-        # CUSTOM SORCERER
-        # ====================================================
-
+        # --- Afterimages (behind player) ---
         if self.custom_player is not None:
+            for ai in self._dash_afterimages:
+                ghost = self.custom_player.copy()
+                ghost.set_alpha(int(ai["alpha"]))
+                if ai["facing"] == "left":
+                    ghost = pygame.transform.flip(ghost, True, False)
+                gx = int(ai["x"]) - int(camera.offset_x) - ghost.get_width()  // 2
+                gy = int(ai["y"]) - int(camera.offset_y) - ghost.get_height() // 2
+                surface.blit(ghost, (gx, gy))
 
+        # --- Dash particles (behind player) ---
+        self._dash_particles.draw(surface, camera)
+
+        # --- Blink during iframes (not during dash) ---
+        if self.iframes > 0 and not self._dashing:
+            if int(self.iframes * 12) % 2 == 0:
+                return   # skip frame → blink
+
+        # --- Main sprite ---
+        if self.custom_player is not None:
             sprite = self.custom_player
 
-            # ------------------------------------------------
-            # FACE LEFT
-            # ------------------------------------------------
-
             if self._facing == "left":
+                sprite = pygame.transform.flip(sprite, True, False)
 
-                sprite = pygame.transform.flip(
-                    sprite,
-                    True,
-                    False
-                )
-
-            # ------------------------------------------------
-            # DAMAGE FLASH
-            # ------------------------------------------------
-
+            # Damage flash overlay
             if self._flash > 0:
-
                 sprite = sprite.copy()
+                fl     = pygame.Surface(sprite.get_size(), pygame.SRCALPHA)
+                fl.fill((255, 60, 60, 90))
+                sprite.blit(fl, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
 
-                flash = pygame.Surface(
-                    sprite.get_size(),
-                    pygame.SRCALPHA
-                )
-
-                flash.fill(
-                    (
-                        255,
-                        60,
-                        60,
-                        80
-                    )
-                )
-
-                sprite.blit(
-                    flash,
-                    (
-                        0,
-                        0
-                    ),
-                    special_flags=pygame.BLEND_RGBA_ADD
-                )
-
-            # =================================================
-            # CAMERA
-            # =================================================
-
-            r = camera.apply(
-                self.rect
-            )
-
-            # =================================================
-            # CENTER PLAYER IMAGE
-            # =================================================
-
-            draw_x = (
-                r.centerx
-                - sprite.get_width() // 2
-            )
-
-            draw_y = (
-                r.centery
-                - sprite.get_height() // 2
-            )
-
-            # =================================================
-            # DRAW
-            # =================================================
-
-            surface.blit(
-                sprite,
-                (
-                    draw_x,
-                    draw_y
-                )
-            )
-
-        # ====================================================
-        # ORIGINAL PLAYER FALLBACK
-        # ====================================================
+            r     = camera.apply(self.rect)
+            draw_x = r.centerx - sprite.get_width()  // 2
+            draw_y = r.centery - sprite.get_height() // 2
+            surface.blit(sprite, (draw_x, draw_y))
 
         else:
+            # Procedural fallback
+            frames = self._anims.get(self._state, [])
+            if frames:
+                idx    = int(self._frame) % len(frames)
+                sprite = frames[idx]
+                r      = camera.apply(self.rect)
+                surface.blit(sprite, r.topleft)
 
-            frames = self._anims[
-                self._state
-            ]
+        # --- Attack effect ---
+        if hasattr(self.attack, "draw"):
+            self.attack.draw(surface, camera)
 
-            if len(frames) > 0:
+        # --- Particles ---
+        self._particles.draw(surface, camera)
 
-                frame_idx = int(
-                    self._frame
-                ) % len(frames)
+        # --- Reality Break overlay ---
+        if self._rb_active and self._rb_surface:
+            frac   = self._rb_timer / RB_DURATION
+            alpha  = int(220 * frac)
+            overlay = self._rb_surface.copy()
+            overlay.set_alpha(alpha)
+            surface.blit(overlay, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
 
-                sprite = frames[
-                    frame_idx
-                ]
-
-                r = camera.apply(
-                    self.rect
-                )
-
-                surface.blit(
-                    sprite,
-                    r.topleft
-                )
-
-        # ====================================================
-        # ATTACK
-        # ====================================================
-
-        self.attack.draw(
-            surface,
-            camera
-        )
-
-        # ====================================================
-        # PARTICLES
-        # ====================================================
-
-        self._particles.draw(
-            surface,
-            camera
-        )
+    def draw_ui(self, surface: pygame.Surface) -> None:
+        """Draw aim reticle and dash cooldown ring near player (screen-space)."""
+        pass   # Extended in HUD
 
     # ========================================================
-    # CENTER
+    # DASH COOLDOWN FRACTION (for HUD)
     # ========================================================
 
     @property
-    def center(self):
+    def dash_cooldown_pct(self) -> float:
+        if DASH_COOLDOWN <= 0:
+            return 0.0
+        return max(0.0, min(1.0, self._dash_cooldown / DASH_COOLDOWN))
 
-        return self.rect.center
+    # ========================================================
+    # NOTIFY DASH COOLDOWN START
+    # ========================================================
+
+    def start_dash_cooldown(self) -> None:
+        self._dash_cooldown = DASH_COOLDOWN

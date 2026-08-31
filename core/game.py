@@ -11,6 +11,7 @@ from config.scoring import SCORING
 from core.game_state import GameState
 from core.level_manager import LevelManager
 from core.asset_manager import assets
+from core.hitstop import hitstop
 from effects.screen_shake import ScreenShake
 from effects.transitions import FadeTransition
 from audio.audio_manager import audio
@@ -290,16 +291,17 @@ class Game:
             *player_start
         )
 
+        diff_mult = {"easy": 0.7, "medium": 1.0, "hard": 1.4}.get(
+            self.lm.difficulty.lower() if self.lm.difficulty else "medium", 1.0
+        )
         self.enemy_mgr = EnemyManager(
-            s,
-            self.lm.difficulty,
-            cfg["enemy_spawn_zones"],
-            player_start,
-            self.level.world_rect
+            cfg,
+            diff_mult
         )
 
         self.enemy_mgr.spawn_wave(
-            cfg["base_enemy_count"]
+            cfg.get("enemy_spawn_zones", []),
+            stage_num=s
         )
 
         self.hud = HUD(
@@ -679,11 +681,18 @@ class Game:
 
             return
 
-        # Input
+        # Hitstop: get effective dt (0.0 when frozen)
+        eff_dt = hitstop.update(dt)
 
+        # Mouse position for aim
+        mouse_pos = pygame.mouse.get_pos()
+
+        # Input
         self.player.handle_input(
             keys,
-            dt
+            eff_dt,
+            mouse_pos=mouse_pos,
+            camera=self.level.camera
         )
 
         # Portal interaction
@@ -694,7 +703,7 @@ class Game:
         )
 
         result = self.level.update(
-            dt,
+            eff_dt,
             self.player,
             e_pressed,
             lambda pts:
@@ -704,10 +713,19 @@ class Game:
         # Player movement
 
         self.player.update(
-            dt,
+            eff_dt,
             self.level.walls,
             self.level.world_rect
         )
+
+        # Camera look-ahead: feed player velocity + aim direction
+        aim_dx = math.cos(self.player._aim_angle) if hasattr(self.player, '_aim_angle') else 0
+        aim_dy = math.sin(self.player._aim_angle) if hasattr(self.player, '_aim_angle') else 0
+        self.level.camera.set_lookahead(
+            self.player.vel.x, self.player.vel.y,
+            aim_dx, aim_dy
+        )
+        self.level.camera.update(self.player.rect, dt=dt)
 
         # Camera shake
 
@@ -726,18 +744,15 @@ class Game:
 
         # Enemies
 
-        score_delta = self.enemy_mgr.update(
-            dt,
+        kill_events = self.enemy_mgr.update(
+            eff_dt,
             self.player,
-            self.level.walls
+            self.level.walls,
+            shake=self.shake
         )
 
-        self.lm.add_score(
-            score_delta
-        )
-
-        if score_delta > 0:
-
+        for event in kill_events:
+            self.lm.add_score(SCORING.get("kill_base", 50))
             self.lm.stage_kills += 1
 
         # HUD
@@ -1039,4 +1054,6 @@ class Game:
             objective=self.objective,
             attack_cooldown_pct=self.player.attack.cooldown_pct,
             fragment_count=self.player.fragments_collected,
+            momentum=self.player.momentum,
+            dash_cooldown_pct=self.player.dash_cooldown_pct,
         )
