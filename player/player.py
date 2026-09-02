@@ -10,7 +10,7 @@ import random
 
 from config.controls import (
     MOVE_LEFT, MOVE_RIGHT, MOVE_UP, MOVE_DOWN,
-    ATTACK, INTERACT
+        ATTACK, INTERACT, DEFLECT
 )
 from config.settings import SCREEN_WIDTH, SCREEN_HEIGHT
 from player.player_animation import build_animations
@@ -95,6 +95,13 @@ class Player:
         self._rb_active  = False
         self._rb_timer   = 0.0
         self._rb_surface = None   # mirror-dimension overlay (built lazily)
+
+        # ------- Deflect (Tao Mandala) -------
+        self._deflect_active = False
+        self._deflect_timer  = 0.0
+        self._deflect_window = 0.12
+        self._deflect_cooldown = 0.0
+        self._prev_deflect_key = False
 
         # ------- particles -------
         self._particles  = ParticleSystem()
@@ -240,6 +247,14 @@ class Player:
             fired  = self.attack.try_fire(origin, self._aim_angle)
             if fired:
                 self.momentum.signal_active()
+        # --- Deflect (Tao Mandala) ---
+        deflect_key_down = any(keys[k] for k in DEFLECT)
+        if deflect_key_down and not self._prev_deflect_key and self._deflect_cooldown <= 0:
+            self._deflect_active = True
+            self._deflect_timer  = self._deflect_window
+            self._deflect_cooldown = 0.6   # tune later
+            self._prev_deflect_key = deflect_key_down
+            print("DEFLECT ACTIVE")
 
         # --- Reality Break ---
         try:
@@ -375,6 +390,13 @@ class Player:
             if self._rb_timer <= 0:
                 self._rb_active  = False
                 self._rb_surface = None
+        # --- Deflect timers ---
+        if self._deflect_active:
+            self._deflect_timer -= dt
+            if self._deflect_timer <= 0:
+                self._deflect_active = False
+        if self._deflect_cooldown > 0:
+            self._deflect_cooldown -= dt
 
         # --- float-position movement ---
         self._fx += self.vel.x * dt

@@ -172,12 +172,20 @@ class EnemyManager:
                 continue
             for proj in enemy.get_projectiles():
                 if proj.alive and proj.rect.colliderect(player.rect):
-                    proj.alive = False
-                    if player.take_damage(proj.damage):
+                    if getattr(player, "_deflect_active", False):
+                        # Reflect it back at the enemy, doubled damage
+                        proj.vx = -proj.vx
+                        proj.vy = -proj.vy
+                        proj.damage *= 2
+                        player.momentum.on_attack_hit()
                         if shake:
-                            shake.add_trauma(0.20)
-                        hitstop.trigger(HitstopDuration.HEAVY)
-
+                            shake.add_trauma(0.10)
+                    else:
+                        proj.alive = False
+                        if player.take_damage(proj.damage):
+                            if shake:
+                                shake.add_trauma(0.20)
+                            hitstop.trigger(HitstopDuration.HEAVY)
         # --- Reality Break stagger ---
         if hasattr(player, '_rb_active') and player._rb_active:
             for enemy in self.enemies:
