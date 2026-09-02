@@ -7,77 +7,101 @@ import pygame
 import math
 
 def _draw_strange_frame(state: str, frame: int, size=(64, 80)) -> pygame.Surface:
-    """Draw a single Doctor Strange animation frame."""
+    """Draw a single Doctor Strange animation frame with more detail/shading."""
     w, h = size
     surf = pygame.Surface(size, pygame.SRCALPHA)
 
-    # Lerp helper for subtle animations
-    t = (math.sin(frame * 0.5) + 1) / 2  # 0..1
+    t = (math.sin(frame * 0.5) + 1) / 2  # 0..1 idle breathing
 
-    # --- Body (dark blue/black mystical suit) ---
-    body_rect = pygame.Rect(w//2 - 11, h//2 - 8, 22, 28)
-    pygame.draw.rect(surf, (30, 25, 55), body_rect, border_radius=4)
+    cx = w // 2
+    walk_bob = int(math.sin(frame * 1.2) * 2) if state == 'walk' else 0
+    body_top = h // 2 - 8 + walk_bob
 
-    # --- Red Cloak ---
-    cloak_color = (180, 30, 20)
+    # CLOAK OF LEVITATION (drawn first, behind body)
+    cloak_sway = math.sin(frame * 0.4) * 6 if state in ('idle', 'walk') else 0
+    cloak_flare = 10 if state in ('attack', 'portal') else 0
+    cloak_dark = (120, 18, 14)
+    cloak_mid  = (180, 30, 20)
+    cloak_light = (225, 70, 45)
+
     cloak_pts = [
-        (w//2 - 20, h//2 - 4),
-        (w//2 + 20, h//2 - 4),
-        (w//2 + 28, h//2 + 30 + (int(t*4) if state=='idle' else 0)),
-        (w//2 - 28, h//2 + 30 + (int(t*4) if state=='idle' else 0)),
+        (cx - 19, body_top - 2),
+        (cx + 19, body_top - 2),
+        (cx + 27 + cloak_flare, body_top + 34 + cloak_sway),
+        (cx + 10, body_top + 30 + cloak_sway * 0.6),
+        (cx,      body_top + 34 + cloak_sway * 0.3),
+        (cx - 10, body_top + 30 + cloak_sway * 0.6),
+        (cx - 27 - cloak_flare, body_top + 34 + cloak_sway),
     ]
-    pygame.draw.polygon(surf, cloak_color, cloak_pts)
-    pygame.draw.polygon(surf, (220, 60, 40), cloak_pts, 2)
+    pygame.draw.polygon(surf, cloak_dark, cloak_pts)
+    inner_cloak_pts = [(x, y - 4) for x, y in cloak_pts[1:-1]]
+    pygame.draw.polygon(surf, cloak_mid, [cloak_pts[0]] + inner_cloak_pts + [cloak_pts[-1]])
+    pygame.draw.lines(surf, cloak_light, False, cloak_pts, 2)
 
-    # Collar
-    pygame.draw.rect(surf, (200, 50, 30), (w//2-13, h//2-12, 26, 10), border_radius=3)
+    pygame.draw.polygon(surf, cloak_mid, [
+        (cx - 15, body_top - 2), (cx - 19, body_top - 14), (cx - 9, body_top - 4)
+    ])
+    pygame.draw.polygon(surf, cloak_mid, [
+        (cx + 15, body_top - 2), (cx + 19, body_top - 14), (cx + 9, body_top - 4)
+    ])
 
-    # --- Head ---
-    head_y = h//2 - 26 + (int(t*2) if state == 'idle' else 0)
-    pygame.draw.ellipse(surf, (220, 180, 140), (w//2-10, head_y, 20, 22))
+    # BODY (tunic)
+    body_rect = pygame.Rect(cx - 10, body_top, 20, 26)
+    pygame.draw.rect(surf, (24, 20, 46), body_rect, border_radius=5)
+    pygame.draw.rect(surf, (40, 34, 68), (body_rect.x + 2, body_rect.y + 2, 8, body_rect.height - 4), border_radius=3)
 
-    # Hair (dark brown)
-    pygame.draw.ellipse(surf, (60, 35, 20), (w//2-10, head_y, 20, 12))
+    pygame.draw.rect(surf, (200, 160, 60), (cx - 10, body_top + 16, 20, 3))
+    pygame.draw.line(surf, (200, 160, 60), (cx, body_top + 2), (cx, body_top + 24), 2)
 
-    # Beard
-    pygame.draw.ellipse(surf, (80, 55, 35), (w//2-7, head_y+12, 14, 9))
+    amulet_glow = (120, 220, 255) if state in ('attack', 'portal') else (90, 170, 200)
+    pygame.draw.circle(surf, (60, 45, 20), (cx, body_top + 8), 4)
+    pygame.draw.circle(surf, amulet_glow, (cx, body_top + 8), 2)
 
-    # Eyes (glowing depending on state)
-    eye_col = (255, 200, 50) if state in ('attack','portal') else (255, 255, 255)
-    pygame.draw.circle(surf, eye_col, (w//2-4, head_y+8), 2)
-    pygame.draw.circle(surf, eye_col, (w//2+4, head_y+8), 2)
+    # HEAD
+    head_y = body_top - 20 + (int(t * 2) if state == 'idle' else 0)
+    skin = (215, 172, 135)
+    skin_shadow = (185, 142, 108)
+    pygame.draw.ellipse(surf, skin, (cx - 9, head_y, 18, 20))
+    pygame.draw.ellipse(surf, skin_shadow, (cx - 3, head_y + 9, 10, 10))
 
-    # --- Legs ---
+    pygame.draw.ellipse(surf, (50, 48, 52), (cx - 9, head_y - 1, 18, 10))
+    pygame.draw.arc(surf, (150, 150, 155), (cx - 9, head_y - 1, 18, 10), 3.6, 5.8, 2)
+
+    beard_pts = [(cx - 6, head_y + 11), (cx + 6, head_y + 11), (cx + 3, head_y + 18), (cx - 3, head_y + 18)]
+    pygame.draw.polygon(surf, (60, 58, 62), beard_pts)
+
+    pygame.draw.line(surf, (40, 38, 42), (cx - 6, head_y + 7), (cx - 2, head_y + 6), 1)
+    pygame.draw.line(surf, (40, 38, 42), (cx + 2, head_y + 6), (cx + 6, head_y + 7), 1)
+
+    eye_col = (150, 230, 255) if state in ('attack', 'portal') else (255, 255, 255)
+    pygame.draw.circle(surf, eye_col, (cx - 3, head_y + 9), 2)
+    pygame.draw.circle(surf, eye_col, (cx + 3, head_y + 9), 2)
+
+    # LEGS / BOOTS
     leg_y = body_rect.bottom
     offset = int(math.sin(frame * 1.2) * 5) if state == 'walk' else 0
-    pygame.draw.rect(surf, (25, 20, 50), (w//2-9, leg_y, 8, 18+offset), border_radius=3)
-    pygame.draw.rect(surf, (25, 20, 50), (w//2+1, leg_y, 8, 18-offset), border_radius=3)
-    # Boots
-    pygame.draw.rect(surf, (15, 10, 35), (w//2-11, leg_y+14+offset, 10, 6), border_radius=2)
-    pygame.draw.rect(surf, (15, 10, 35), (w//2+1,  leg_y+14-offset, 10, 6), border_radius=2)
+    pygame.draw.rect(surf, (22, 18, 40), (cx - 8, leg_y, 7, 16 + offset), border_radius=3)
+    pygame.draw.rect(surf, (22, 18, 40), (cx + 1, leg_y, 7, 16 - offset), border_radius=3)
+    pygame.draw.rect(surf, (12, 10, 26), (cx - 9, leg_y + 12 + offset, 9, 6), border_radius=2)
+    pygame.draw.rect(surf, (12, 10, 26), (cx + 1, leg_y + 12 - offset, 9, 6), border_radius=2)
 
-    # --- Arms + Hands ---
+    # ARMS + HANDS + spellcasting rings
     arm_col = (30, 25, 55)
-    hand_col = (255, 180, 50) if state == 'attack' else (220, 180, 140)
-
-    # Walk arm swing
+    hand_col = (255, 190, 70) if state == 'attack' else skin
     arm_swing = int(math.sin(frame * 1.2) * 6) if state == 'walk' else 0
 
-    # Left arm
-    lax, lay = w//2 - 16, h//2 - 4
-    pygame.draw.line(surf, arm_col, (lax, lay), (lax - 6, lay + 14 + arm_swing), 5)
-    pygame.draw.circle(surf, hand_col, (lax - 6, lay + 18 + arm_swing), 5)
+    lax, lay = cx - 15, body_top + 4
+    pygame.draw.line(surf, arm_col, (lax, lay), (lax - 6, lay + 13 + arm_swing), 5)
+    pygame.draw.circle(surf, hand_col, (lax - 6, lay + 17 + arm_swing), 4)
 
-    # Right arm
-    rax, ray = w//2 + 16, h//2 - 4
-    pygame.draw.line(surf, arm_col, (rax, ray), (rax + 6, ray + 14 - arm_swing), 5)
-    pygame.draw.circle(surf, hand_col, (rax + 6, ray + 18 - arm_swing), 5)
+    rax, ray = cx + 15, body_top + 4
+    pygame.draw.line(surf, arm_col, (rax, ray), (rax + 6, ray + 13 - arm_swing), 5)
+    pygame.draw.circle(surf, hand_col, (rax + 6, ray + 17 - arm_swing), 4)
 
-    # Mandala rings on hands when attacking
     if state == 'attack':
         ri = int(frame % 6)
-        pygame.draw.circle(surf, (255, 200+ri*5, 50), (lax-6, lay+18+arm_swing), 9+ri, 2)
-        pygame.draw.circle(surf, (255, 150, 0), (rax+6, ray+18-arm_swing), 9+ri, 2)
+        pygame.draw.circle(surf, (140, 220, 255), (lax - 6, lay + 17 + arm_swing), 8 + ri, 2)
+        pygame.draw.circle(surf, (255, 170, 60), (rax + 6, ray + 17 - arm_swing), 8 + ri, 2)
 
     # Damage flash
     if state == 'damage':
@@ -93,7 +117,6 @@ def _draw_strange_frame(state: str, frame: int, size=(64, 80)) -> pygame.Surface
         surf.blit(dim, (0, 0))
 
     return surf
-
 
 def build_animations(size=(64, 80)) -> dict:
     """Build all animation frame lists."""

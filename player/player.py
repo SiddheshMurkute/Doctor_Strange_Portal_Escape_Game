@@ -121,30 +121,30 @@ class Player:
     # ========================================================
 
     def load_custom_player(self):
-        current_file    = os.path.abspath(__file__)
-        player_folder   = os.path.dirname(current_file)
-        project_folder  = os.path.dirname(player_folder)
+        current_file = os.path.abspath(__file__)
+        player_folder = os.path.dirname(current_file)
+        project_folder = os.path.dirname(player_folder)
         player_folder_path = os.path.join(project_folder, "assets", "player")
 
         possible_images = [
-            "mystical_sorcerer_player.jpg",
-            "doctor_strange_player_120x145.jpg",
-            "doctor_strange_player.jpg",
-            "mystical_sorcerer_player.jpeg",
             "doctor_strange_player.jpeg",
-            "mystical_sorcerer_player.png",
+            "doctor_strange_player.jpg",
             "doctor_strange_player.png",
         ]
 
         image_path = None
+
         for filename in possible_images:
             test_path = os.path.join(player_folder_path, filename)
+
             if os.path.isfile(test_path):
                 image_path = test_path
                 break
 
         if image_path is None:
+            print("PLAYER IMAGE NOT FOUND")
             return
+        print("PLAYER IMAGE FOUND:", image_path)
 
         try:
             image = pygame.image.load(image_path).convert()
@@ -152,10 +152,13 @@ class Player:
             return
 
         image = image.convert_alpha()
-        w, h  = image.get_width(), image.get_height()
+
+        w, h = image.get_width(), image.get_height()
+
         for y in range(h):
             for x in range(w):
                 r, g, b, a = image.get_at((x, y))
+
                 if r > 220 and g > 220 and b > 220:
                     image.set_at((x, y), (r, g, b, 0))
 
